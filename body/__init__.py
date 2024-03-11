@@ -1,17 +1,21 @@
 from .body_model import BodyModel
 from .utils import viz_smpl_seq
+from .math import rotate_x
 import torch
+import numpy as np
+import os
 from functools import lru_cache
 
 
 def load_body_model(smpl_path, num_betas, T):
     if smpl_path is None:
-        smpl_path = "./data/body_models/smplh/neutral/model.npz"
+        smpl_path = f"{os.path.dirname(__file__)}/data/body_models/smplh/neutral/model.npz"
     bm = BodyModel(smpl_path, num_betas=num_betas, batch_size=T).to("cuda")
     return bm
 
 
-def viz_motion(res_dict, smpl_path=None, z_up=False):
+@torch.no_grad()
+def viz_motion(res_dict, smpl_path=None, **kwargs):
     def prepare_res(np_res, device, T):
         '''
         Load np result dict into dict of torch objects for use with SMPL body model.
@@ -63,15 +67,26 @@ def viz_motion(res_dict, smpl_path=None, z_up=False):
         trans=res_dict["trans"],
     )
 
+    first_frame_vertices = pred_body.v[0].reshape(-1, 3)
+
+    up_axis = torch.argmax(first_frame_vertices.std(axis=0))
+    ground = torch.min(first_frame_vertices[:, up_axis]).cpu().numpy()
+    head = torch.max(first_frame_vertices[:, up_axis]).cpu().numpy()
+    
+    print("up axis, ground, head", up_axis, ground, head)
+
     params = dict(
-        camera_intrinsics=(707.0211588541666, 706.9237467447916, 640.0, 360.0),
+        # camera_intrinsics=(707.0211588541666, 706.9237467447916, 640.0, 360.0),
         render_ground=True,
-        ground_plane=[0, 1, 0, 1],
+        ground_plane=[0, 1, 0, ground],
         contacts=True,
     )
+    params.update(**kwargs)
 
-    if z_up:
-        params.pop("ground_plane")
-        params.pop("camera_intrinsics")
+    if up_axis == 2:
+        # params.pop("ground_plane")
+        # params.pop("camera_intrinsics")
+        shape = pred_body.v.shape
+        pred_body.v = ((rotate_x(np.pi/2)[:3, :3] @ pred_body.v.reshape(-1, 3).T).T).reshape(*shape)
 
     viz_smpl_seq(pred_body, out_path="some", cam_offset=True, **params)
