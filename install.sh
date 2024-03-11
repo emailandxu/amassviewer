@@ -1,0 +1,1 @@
+sudo cp viewamass.desktop /usr/share/applications/
